@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.100"
+aws-config = { version = "1.8.12", features = ["rt-tokio"] }
+aws-sdk-s3 = { version = "1.119.0", features = ["behavior-version-latest"] }
+tokio = { version = "1.49.0", features = ["full"] }
