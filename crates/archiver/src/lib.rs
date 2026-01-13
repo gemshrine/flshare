@@ -1,12 +1,14 @@
-use std::{fs::File, io, path::{Path, PathBuf}};
+use std::{
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
-use chrono::Local;
 use walkdir::WalkDir;
-use zip::{ZipWriter, write::{SimpleFileOptions}};
+use zip::{ZipWriter, write::SimpleFileOptions};
 
 pub fn archive_project(dir: &Path) -> Result<PathBuf> {
-
     let project_name = dir
         .file_name()
         .context("invalid project dir")?
@@ -27,9 +29,7 @@ pub fn archive_project(dir: &Path) -> Result<PathBuf> {
         let path = entry.path();
 
         if path.is_file() && path.extension().map(|e| e == "wav").unwrap_or(false) {
-            let name_in_zip  = path
-                .strip_prefix(dir)?
-                .to_string_lossy();
+            let name_in_zip = path.strip_prefix(dir)?.to_string_lossy();
 
             zip.start_file(name_in_zip, options)?;
 
