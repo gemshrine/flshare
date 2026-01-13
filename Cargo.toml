@@ -1,11 +1,8 @@
 [workspace]
 members = [
-    "crates/events",
     "crates/watcher",
     "crates/archiver",
-    "crates/uploader",
-    "crates/metadata",
-    "apps/flshare-cli",
+    "apps/flshare-cli"
 ]
 
 resolver = "2"
