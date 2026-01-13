@@ -1,0 +1,24 @@
+services:
+  minio:
+    container_name: minio
+    image: minio/minio
+    environment:
+      - MINIO_ROOT_USER=sasha
+      - MINIO_ROOT_PASSWORD=passpass
+      - MINIO_DEFAULT_BUCKETS=buck1
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - app-net
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  minio_data:
+    driver: local

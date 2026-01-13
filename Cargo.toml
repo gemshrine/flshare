@@ -3,6 +3,6 @@ members = [
     "crates/watcher",
     "crates/archiver",
     "apps/flshare-cli"
-]
+, "crates/uploader"]
 
 resolver = "2"
