@@ -4,7 +4,7 @@ use notify::{
     event::ModifyKind,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -31,6 +31,7 @@ impl Watcher {
 
     pub async fn run(&self) -> notify::Result<()> {
         let (tx, mut rx) = mpsc::unbounded_channel::<Event>();
+        let mut finished_projects: HashSet<PathBuf> = HashSet::new();
 
         let mut watcher: RecommendedWatcher =
             notify::recommended_watcher(move |res: notify::Result<Event>| match res {
@@ -48,13 +49,16 @@ impl Watcher {
         loop {
             tokio::select! {
                 Some(event) = rx.recv() => {
-                    println!("event occured: {:?}", event);
 
                     match event.kind {
-                        EventKind::Create(_) | EventKind::Modify(ModifyKind::Any) | EventKind::Modify(ModifyKind::Data(_)) => {
+                        EventKind::Create(_)
+                        | EventKind::Modify(ModifyKind::Any)
+                        | EventKind::Modify(ModifyKind::Data(_)) => {
                             for path in event.paths {
                                 if let Some(project) = find_project(&path) {
-                                    projects.insert(project, Instant::now());
+                                    if !finished_projects.contains(&project) {
+                                        projects.insert(project, Instant::now());
+                                    }
                                 }
                             }
                         }
@@ -62,16 +66,17 @@ impl Watcher {
                     }
                 }
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                    let mut finished = Vec::new();
+                    let mut rendered = Vec::new();
 
                     for (project, last_change) in projects.iter() {
                         if last_change.elapsed() > self.config.timeout {
-                            finished.push(project.clone());
+                            rendered.push(project.clone());
                         }
                     }
 
-                    for project in finished {
+                    for project in rendered {
                         projects.remove(&project);
+                        finished_projects.insert(project.clone());
 
                         match archiver::archive_project(&project) {
                             Ok(archive) => {
@@ -93,19 +98,16 @@ impl Watcher {
 }
 
 fn find_project(path: &Path) -> Option<PathBuf> {
-    let mut cur = path;
+    if path.extension()?.to_str()? != "wav" {
+        return None;
+    }
 
-    while let Some(parent) = cur.parent() {
-        if path.extension().and_then(|e| e.to_str()) != Some("wav") {
-            continue;
+    for ancestor in path.ancestors() {
+        if let Some(name) = ancestor.file_name().and_then(|n| n.to_str()) {
+            if name.eq_ignore_ascii_case("audio") {
+                return ancestor.parent().map(|p| p.to_path_buf());
+            }
         }
-
-        if cur.file_name()?.to_str()?.eq_ignore_ascii_case("audio") {
-            println!("path found");
-            return Some(parent.to_path_buf());
-        }
-
-        cur = parent;
     }
 
     None
