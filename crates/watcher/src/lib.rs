@@ -6,9 +6,9 @@ use notify::{
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use tokio::sync::mpsc;
 
 pub struct WatcherConfig {
     pub timeout: Duration,
@@ -30,28 +30,12 @@ impl Watcher {
     }
 
     pub async fn run(&self) -> notify::Result<()> {
-        let projects: Arc<Mutex<HashMap<PathBuf, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
-
-        let projects_clone = projects.clone();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Event>();
 
         let mut watcher: RecommendedWatcher =
             notify::recommended_watcher(move |res: notify::Result<Event>| match res {
                 Ok(event) => {
-                    println!("event occured: {:?}", event);
-
-                    match event.kind {
-                        EventKind::Create(_)
-                        | EventKind::Modify(ModifyKind::Any)
-                        | EventKind::Modify(ModifyKind::Data(_)) => {
-                            for path in event.paths {
-                                if let Some(project) = find_project(&path) {
-                                    let mut map = projects_clone.lock().unwrap();
-                                    map.insert(project, Instant::now());
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
+                    let _ = tx.send(event);
                 }
                 Err(e) => println!("watch error: {:?}", e),
             })?;
@@ -59,40 +43,50 @@ impl Watcher {
         watcher.watch(&self.root, RecursiveMode::Recursive)?;
         println!("watching: {}", self.root.display());
 
+        let mut projects: HashMap<PathBuf, Instant> = HashMap::new();
+
         loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::select! {
+                Some(event) = rx.recv() => {
+                    println!("event occured: {:?}", event);
 
-            let mut finished = Vec::new();
-
-            {
-                let map = projects.lock().unwrap();
-                for (project, last_change) in map.iter() {
-                    if last_change.elapsed() > self.config.timeout {
-                        finished.push(project.clone());
+                    match event.kind {
+                        EventKind::Create(_) | EventKind::Modify(ModifyKind::Any) | EventKind::Modify(ModifyKind::Data(_)) => {
+                            for path in event.paths {
+                                if let Some(project) = find_project(&path) {
+                                    projects.insert(project, Instant::now());
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
-            }
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    let mut finished = Vec::new();
 
-            if !finished.is_empty() {
-                let mut map = projects.lock().unwrap();
-
-                for project in finished {
-                    map.remove(&project);
-
-                    match archiver::archive_project(&project) {
-                        Ok(archive) => {
-                            println!(
-                                "archive project: {} -> {}",
-                                project.display(),
-                                archive.display()
-                            );
-                        }
-                        Err(e) => {
-                            println!("archive failed for {}: {:?}", project.display(), e);
+                    for (project, last_change) in projects.iter() {
+                        if last_change.elapsed() > self.config.timeout {
+                            finished.push(project.clone());
                         }
                     }
-                    println!("render finished: {}", project.display())
+
+                    for project in finished {
+                        projects.remove(&project);
+
+                        match archiver::archive_project(&project) {
+                            Ok(archive) => {
+                                println!("archive project: {} -> {}", project.display(), archive.display());
+                            }
+                            Err(e) => {
+                                eprintln!("archive failed for project {}: {:?}", project.display(), e);
+
+                            }
+
+                        }
+                        println!("render finished: {}", project.display());
+                    }
                 }
+
             }
         }
     }
